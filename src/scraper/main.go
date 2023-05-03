@@ -414,7 +414,7 @@ type Job struct {
 	format       int
 }
 
-var WorkerNum int = 100
+var WorkerNum int = 10
 
 func launchWorkers(queue chan *Job, wg *sync.WaitGroup) {
 	for i := 0; i < WorkerNum; i++ {
