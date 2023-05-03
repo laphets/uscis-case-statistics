@@ -19,11 +19,11 @@ import (
 )
 
 var CENTER_NAMES = []string{
-	"WAC",
+	// "WAC",
 	"EAC",
-	"MSC",
-	"LIN",
-	"SRC",
+	// "MSC",
+	// "LIN",
+	// "SRC",
 	// "IOE",
 	// "YSC" seems nobody cares,
 }
@@ -66,13 +66,13 @@ var FORM_TYPES = []string{
 }
 
 var FYs = []int{
-	21,
-	22,
+	23,
 }
 
 type Result struct {
 	Status string
 	Form   string
+	CaseID string
 }
 
 type RawStorage struct {
@@ -85,6 +85,8 @@ var case_status_index_store = make(map[Result]int)
 var case_form_type_global_cache = make(map[string]string)
 var case_status_index = 0
 var report_freq int64 = 10000
+
+var case_results = make([]Result, 0)
 
 const (
 	center_year_day_code_serial = iota
@@ -104,6 +106,7 @@ var client = &http.Client{
 }
 
 func get(form url.Values, retry int) Result {
+	caseID := form.Get("appReceiptNum")
 	sem.Acquire(context.Background(), 1)
 	res, err1 := client.PostForm("https://egov.uscis.gov/casestatus/mycasestatus.do", form)
 
@@ -135,7 +138,7 @@ func get(form url.Values, retry int) Result {
 			case_form_store_mutex.Lock()
 			case_form_type_global_cache[case_id] = form
 			case_form_store_mutex.Unlock()
-			return Result{status, form}
+			return Result{status, form, caseID}
 		}
 	}
 	if status != "" {
@@ -143,12 +146,12 @@ func get(form url.Values, retry int) Result {
 		cachedForm, ok := case_form_type_global_cache[case_id]
 		case_form_store_mutex.Unlock()
 		if ok {
-			return Result{status, cachedForm}
+			return Result{status, cachedForm, caseID}
 		} else {
-			return Result{status, "unknown"}
+			return Result{status, "unknown", caseID}
 		}
 	} else {
-		return Result{"", ""}
+		return Result{"", "", caseID}
 	}
 }
 
@@ -235,11 +238,14 @@ func all(center string, two_digit_yr int, day int, code int, format int, report_
 		go clawAsync(center, two_digit_yr, day, code, i, format, c)
 	}
 	counter := make(map[string]map[int64]int)
+	local_case_results := make([]Result, 0)
 	for i := 1; i < last; i++ {
 		cur := <-c
 		if cur.Status == "" || cur.Form == "" {
 			continue
 		}
+
+		local_case_results = append(local_case_results, cur)
 
 		key := fmt.Sprintf("%s|%d|%d|%d|%s|%s", center, two_digit_yr, day, code, cur.Form, cur.Status)
 
@@ -248,13 +254,20 @@ func all(center string, two_digit_yr int, day int, code int, format int, report_
 		}
 		counter[key][epoch_day] += 1
 	}
+
+	fmt.Printf("counter: %+v\n", counter)
+
 	mutex.Lock()
 	existingCounter := make(map[string]map[int64]int)
-	jsonFile := readF(path)
-	json.Unmarshal([]byte(jsonFile), &existingCounter)
+	jsonFile, err := os.ReadFile(path)
+	if err == nil {
+		json.Unmarshal([]byte(jsonFile), &existingCounter)
+	}
 	getMerged(existingCounter, counter)
 	b, _ := json.MarshalIndent(existingCounter, "", "  ")
 	writeF(path, b)
+
+	case_results = append(case_results, local_case_results...)
 
 	mutex.Unlock()
 	fmt.Printf("Done %s total of %d at day %d of format %d\n", center, last, day, format)
@@ -332,7 +345,7 @@ func build_transitioning_map(delta int) {
 		case_status_new := reverse_map_new[case_status_index_new]
 		case_status_old, ok := reverse_map_old[raw_old.Status[caseid]]
 		if !ok {
-			case_status_old = Result{"NEW_CASE", case_status_new.Form}
+			case_status_old = Result{"NEW_CASE", case_status_new.Form, case_status_new.CaseID}
 		}
 		if case_status_new != case_status_old {
 			var center, year, day, code, serial, count_key string
@@ -411,6 +424,9 @@ func main() {
 			}
 		}
 	}
+
+	b, _ := json.MarshalIndent(case_results, "", "  ")
+	writeF("case_results.json", b)
 
 	buffer := new(bytes.Buffer)
 	e := gob.NewEncoder(buffer)
