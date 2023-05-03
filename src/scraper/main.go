@@ -221,8 +221,7 @@ func getLastCaseNumber(center string, two_digit_yr int, day int, code int, forma
 	return low - 1
 }
 
-func all(center string, two_digit_yr int, day int, code int, format int, report_c chan int) {
-	defer func() { report_c <- 0 }()
+func all(center string, two_digit_yr int, day int, code int, format int) {
 	dir, _ := os.Getwd()
 	var path string
 	if format == center_year_day_code_serial {
@@ -407,23 +406,50 @@ func persist_case_cache() {
 	writeF("./case_form_type_global_cache.bytes", buffer.Bytes())
 }
 
+type Job struct {
+	center       string
+	two_digit_yr int
+	day          int
+	code         int
+	format       int
+}
+
+var WorkerNum int = 100
+
+func launchWorkers(queue chan *Job, wg *sync.WaitGroup) {
+	for i := 0; i < WorkerNum; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range queue {
+				all(job.center, job.two_digit_yr, job.day, job.code, job.format)
+			}
+		}()
+	}
+}
+
 func main() {
 	load_case_cache()
 
+	queue := make(chan *Job, WorkerNum)
+	wg := sync.WaitGroup{}
+
+	launchWorkers(queue, &wg)
+
 	for _, fy := range FYs {
 		for _, name := range CENTER_NAMES {
-			report_c_center_year_day_code_serial := make(chan int)
-			report_c_center_year_code_day_serial := make(chan int)
 			for day := 0; day <= 365; day++ {
-				go all(name, fy, day, 5, center_year_day_code_serial, report_c_center_year_day_code_serial)
-				go all(name, fy, day, 9, center_year_code_day_serial, report_c_center_year_code_day_serial)
-			}
-			for i := 0; i <= 365; i++ {
-				<-report_c_center_year_day_code_serial
-				<-report_c_center_year_code_day_serial
+				queue <- &Job{center: name, two_digit_yr: fy, day: day, code: 5, format: center_year_day_code_serial}
+				queue <- &Job{center: name, two_digit_yr: fy, day: day, code: 9, format: center_year_code_day_serial}
 			}
 		}
 	}
+
+	close(queue)
+
+	wg.Wait()
+
+	fmt.Println("Job finished...")
 
 	b, _ := json.MarshalIndent(case_results, "", "  ")
 	writeF("case_results.json", b)
