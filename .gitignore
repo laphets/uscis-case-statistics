@@ -1,0 +1,35 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+src/clawer.js
+src/Constants.js
+src/scraper/main
+src/scraper/nocommit/*.bytes
+src/scraper/transitioning_7.json
+src/scraper/transitioning_1.json
+src/scraper/transitioning.json
+src/scraper/data_center_year_day_code_serial_22.json
+src/scraper/data_center_year_day_code_serial_21.json
+src/scraper/data_center_year_code_day_serial_22.json
+src/scraper/data_center_year_code_day_serial_21.json
+src/scraper/case_form_type_global_cache.bytes
